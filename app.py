@@ -55,6 +55,12 @@ with st.expander("About this project (SIH objectives mapping)", expanded=False):
 # --- Sidebar controls ---------------------------------------------------
 st.sidebar.header("Setup")
 city = st.sidebar.text_input("City / Place", "Vijayawada, India")
+search_radius_km = st.sidebar.slider(
+    "Search radius (km)", 2, 15, 5,
+    help="Downloads roads within this radius of the city center, rather "
+         "than its full administrative boundary (which can be much larger "
+         "than expected and cause slow/failed downloads)."
+)
 
 stop_mode = st.sidebar.radio(
     "Delivery stops", ["Random (for testing)", "Enter my own coordinates"]
@@ -116,34 +122,12 @@ else:
 
 if "graph" not in st.session_state:
     st.session_state.graph = None
-if "scenario_counter" not in st.session_state:
-    st.session_state.scenario_counter = 0
-
-# Random stop generation is intentionally independent from the optimizer
-# seed above. Without this, "Random seed" (fixed at 42 by default) was being
-# reused directly to pick the depot/customers, so every run generated the
-# exact same scenario. This counter advances only on an explicit action
-# (loading a new city graph, clicking "New random stops", or running
-# H-QPSO), so tweaking sliders in between doesn't reshuffle your stops out
-# from under you.
-randomize_stops = st.sidebar.checkbox(
-    "Randomize delivery stops on each H-QPSO run",
-    value=True,
-    help="When checked, each 'Run H-QPSO' click (and the 'New random stops' "
-         "button below) generates a fresh random depot + customer set. "
-         "Turn this off if you need the exact same stops across runs.",
-)
-
-def _next_scenario():
-    st.session_state.scenario_counter += 1
-
 
 if st.sidebar.button("Load city graph"):
     with st.spinner(f"Downloading road network for {city}..."):
-        G = build_city_graph(city)
+        G = build_city_graph(city, dist_meters=search_radius_km * 1000)
         G = apply_simulated_congestion(G, seed=seed)
         st.session_state.graph = G
-    _next_scenario()
     st.success(f"Loaded {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
 
@@ -166,21 +150,8 @@ else:
     G = st.session_state.graph
 
     if stop_mode == "Random (for testing)":
-        st.sidebar.button("🎲 New random stops", on_click=_next_scenario)
-
-        # Base seed keeps things reproducible for a GIVEN scenario number;
-        # the scenario_counter offset is what actually makes each run's
-        # depot/customers different from the last.
-        scenario_seed = int(seed)
-        if randomize_stops:
-            scenario_seed += 1000003 * st.session_state.scenario_counter
-
-        depot = pick_random_nodes(G, 1, seed=scenario_seed)[0]
-        customers = pick_random_nodes(G, n_customers, seed=scenario_seed + 1, exclude={depot})
-        st.caption(
-            f"Random scenario #{st.session_state.scenario_counter}: "
-            f"{len(customers)} delivery stops generated."
-        )
+        depot = pick_random_nodes(G, 1, seed=int(seed))[0]
+        customers = pick_random_nodes(G, n_customers, seed=int(seed) + 1, exclude={depot})
     else:
         try:
             depot_latlon = parse_latlon_lines(depot_coord_text)[0]
@@ -225,7 +196,7 @@ else:
     ])
 
     with tab1:
-        if st.button("Run H-QPSO", on_click=_next_scenario if randomize_stops else None):
+        if st.button("Run H-QPSO"):
             with st.spinner("Optimizing route..."):
                 best_route, best_fitness, conv_log = run_qpso(
                     problem, n_particles=n_particles, n_iterations=n_iterations, seed=int(seed)
