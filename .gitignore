@@ -1,0 +1,15 @@
+# Never commit your API keys
+config.py
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store
+
+# Generated outputs (regenerate anytime by running benchmark.py)
+benchmark_results.csv
+convergence_plot.png
